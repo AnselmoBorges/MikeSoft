@@ -6,7 +6,7 @@ con = duckdb.connect('academia.duckdb')
 # Tabela de alunos
 con.execute('''
 CREATE TABLE IF NOT EXISTS alunos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id BIGINT,
     nome TEXT,
     data_nascimento DATE,
     sexo TEXT,
@@ -35,7 +35,7 @@ categorias_idade = [
 ]
 con.execute('''
 CREATE TABLE IF NOT EXISTS categorias_idade (
-    nome TEXT PRIMARY KEY,
+    nome TEXT,
     idade_min INTEGER,
     idade_max INTEGER
 );

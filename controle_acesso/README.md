@@ -3,12 +3,14 @@
 Este projeto é um sistema de controle de acesso com reconhecimento facial, cadastro de alunos, cálculo automático de categoria de idade e peso conforme IBJJF, desenvolvido em Python para rodar localmente (Mac ou Raspberry Pi 4).
 
 ## Funcionalidades
-- Cadastro de alunos com foto (webcam)
+- Cadastro de alunos com foto (webcam ou upload)
 - Reconhecimento facial para controle de presença
+- Reconhecimento facial em tempo real (streaming)
 - Cálculo automático de categoria de idade e peso
 - Cadastro de faixa, endereço, etc.
 - Banco de dados local DuckDB
 - Interface web com Streamlit
+- Gerenciamento de alunos (editar/remover)
 
 ## Requisitos
 - Python 3.12+
@@ -28,10 +30,10 @@ python3.12 -m venv venv
 source venv/bin/activate
 ```
 
-### 3. Instale as dependências do sistema
+### 3. Instale as dependências
 ```bash
-pip install --upgrade pip
 pip install -r requirements.txt
+pip install streamlit-webrtc
 ```
 
 ### 4. Instale dependências do sistema para reconhecimento facial
@@ -55,30 +57,23 @@ cmake --version
 python init_db.py
 ```
 
-## Estrutura do Projeto
-```
-controle_acesso/
-├── alunos/                # Fotos dos alunos
-├── academia.duckdb        # Banco de dados DuckDB
-├── app.py                 # Código principal Streamlit
-├── init_db.py             # Script de inicialização do banco
-├── requirements.txt       # Dependências Python
-└── README.md              # Este arquivo
-```
-
-## Observações
-- O sistema foi pensado para rodar localmente, sem custos de nuvem.
-- O reconhecimento facial utiliza a biblioteca `face_recognition` (dlib), que pode demorar para instalar na primeira vez.
-- O banco DuckDB pode ser copiado entre Mac e Raspberry Pi sem problemas.
-
-## Próximos Passos
-- Após instalar tudo, rode o app com:
+### 6. Rode o sistema
 ```bash
 streamlit run app.py
 ```
 
-- Siga as instruções na interface para cadastrar alunos e registrar presenças.
+## Uso do Sistema
+
+- **Cadastro de Aluno:** Cadastre novos alunos com foto (webcam ou upload), dados pessoais e faixa. O sistema calcula automaticamente a categoria de idade e peso.
+- **Reconhecimento Facial:** Tire uma foto e o sistema reconhece o aluno, desenhando um retângulo no rosto.
+- **Reconhecimento Facial (Streaming):** Use a webcam em tempo real para reconhecimento automático, com bounding box e nome do aluno na tela (requer `streamlit-webrtc`).
+- **Gerenciar Alunos:** Edite ou remova alunos cadastrados.
+
+## Observações
+- O reconhecimento facial em streaming pode exigir mais processamento, principalmente no Raspberry Pi.
+- Para melhor desempenho, use uma webcam de boa qualidade e ambiente bem iluminado.
+- O sistema permite nomes duplicados, mas cada aluno tem um ID único.
 
 ---
 
-Se tiver dúvidas ou problemas na instalação, envie a mensagem de erro para suporte!
+Desenvolvido por Anselmo Borges de Moraes Junior
