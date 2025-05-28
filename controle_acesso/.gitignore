@@ -1,0 +1,15 @@
+# Ambiente virtual
+venv/
+
+# Banco de dados
+academia.duckdb
+
+# Arquivos temporários
+*.pyc
+__pycache__/
+
+# Fotos dos alunos
+alunos/
+
+# Streamlit
+.streamlit/
