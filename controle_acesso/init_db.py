@@ -6,7 +6,7 @@ con = duckdb.connect('academia.duckdb')
 # Tabela de alunos
 con.execute('''
 CREATE TABLE IF NOT EXISTS alunos (
-    id BIGINT,
+    id BIGINT PRIMARY KEY,
     nome TEXT,
     data_nascimento DATE,
     sexo TEXT,
@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS alunos (
     categoria_peso TEXT,
     endereco TEXT,
     foto_path TEXT,
-    encoding BLOB
+    encoding BLOB,
+    frequencia INTEGER DEFAULT 0
 );
 ''')
 
@@ -73,6 +74,17 @@ CREATE TABLE IF NOT EXISTS categorias_peso (
 ''')
 con.execute('DELETE FROM categorias_peso;')
 con.executemany('INSERT INTO categorias_peso VALUES (?, ?, ?, ?);', categorias_peso)
+
+# Tabela de histórico de presenças
+con.execute('''
+CREATE TABLE IF NOT EXISTS historico_presencas (
+    id BIGINT PRIMARY KEY,
+    aluno_id BIGINT,
+    nome TEXT,
+    data DATE,
+    hora TIME
+);
+''')
 
 con.close()
 print("Banco de dados inicializado com sucesso!")

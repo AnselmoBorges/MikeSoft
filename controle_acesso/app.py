@@ -9,6 +9,9 @@ import face_recognition
 import io
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import av
+import time
+import base64
+from io import BytesIO
 
 # Funções auxiliares
 
@@ -38,6 +41,16 @@ def gerar_encoding(imagem_pil):
     if len(faces) == 0:
         return None
     return faces[0].tobytes()
+
+# Função para saudação dinâmica
+def saudacao():
+    hora = datetime.datetime.now().hour
+    if hora < 12:
+        return "Bom dia"
+    elif hora < 18:
+        return "Boa tarde"
+    else:
+        return "Boa noite"
 
 # Conexão com o banco
 con = duckdb.connect('academia.duckdb')
@@ -98,38 +111,96 @@ elif opcao == "Reconhecimento Facial":
         face_locations = face_recognition.face_locations(img_np)
         face_encodings = face_recognition.face_encodings(img_np, face_locations)
 
-        # Desenhar bounding box
-        if len(face_locations) > 0:
-            img_box = img_np.copy()
-            for top, right, bottom, left in face_locations:
-                cv2.rectangle(img_box, (left, top), (right, bottom), (0,255,0), 2)
-            st.image(img_box, caption="Rosto(s) detectado(s)", channels="RGB")
-        else:
-            st.image(img_np, caption="Nenhum rosto detectado", channels="RGB")
+        # Inicializa variáveis de exibição
+        dados_html = ""
+        img_box = img_np.copy()
+        nome_box = ""
 
         if len(face_encodings) == 0:
             st.error("Nenhum rosto detectado na imagem. Tente novamente.")
         else:
             encoding_capturado = face_encodings[0]
-            # Carregar encodings dos alunos
-            alunos = con.execute("SELECT nome, encoding FROM alunos WHERE encoding IS NOT NULL").fetchall()
+            alunos = con.execute("SELECT id, nome, faixa, categoria_idade, categoria_peso, frequencia, encoding FROM alunos WHERE encoding IS NOT NULL").fetchall()
+            ids = []
             nomes = []
+            faixas = []
+            categorias_idade = []
+            categorias_peso = []
+            frequencias = []
             encodings = []
-            for nome, enc in alunos:
+            for id_aluno, nome, faixa, cat_idade, cat_peso, freq, enc in alunos:
                 if enc is not None:
                     enc_np = np.frombuffer(enc, dtype=np.float64)
                     encodings.append(enc_np)
                     nomes.append(nome)
+                    ids.append(id_aluno)
+                    faixas.append(faixa)
+                    categorias_idade.append(cat_idade)
+                    categorias_peso.append(cat_peso)
+                    frequencias.append(freq)
             if len(encodings) == 0:
                 st.warning("Nenhum aluno cadastrado com encoding facial.")
             else:
-                # Comparar
                 resultados = face_recognition.compare_faces(encodings, encoding_capturado, tolerance=0.5)
                 if any(resultados):
                     idx = resultados.index(True)
-                    st.success(f"Aluno reconhecido: {nomes[idx]}")
+                    nome_reconhecido = nomes[idx]
+                    id_reconhecido = ids[idx]
+                    faixa = faixas[idx]
+                    categoria_idade = categorias_idade[idx]
+                    categoria_peso = categorias_peso[idx]
+                    frequencia = frequencias[idx]
+                    hoje = datetime.date.today()
+                    agora = datetime.datetime.now().strftime("%H:%M:%S")
+                    query = "SELECT COUNT(*) FROM historico_presencas WHERE aluno_id = ? AND data = ?"
+                    result = con.execute(query, (id_reconhecido, hoje)).fetchone()
+                    saud = saudacao()
+                    # Desenhar bounding box e nome
+                    for (top, right, bottom, left) in face_locations:
+                        cv2.rectangle(img_box, (left, top), (right, bottom), (0,255,0), 2)
+                        cv2.putText(img_box, nome_reconhecido, (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+                    if result[0] == 0:
+                        novo_id = con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM historico_presencas").fetchone()[0]
+                        con.execute(
+                            "INSERT INTO historico_presencas (id, aluno_id, nome, data, hora) VALUES (?, ?, ?, ?, ?)",
+                            (novo_id, id_reconhecido, nome_reconhecido, hoje, agora)
+                        )
+                        con.execute(
+                            "UPDATE alunos SET frequencia = frequencia + 1 WHERE id = ?",
+                            (id_reconhecido,)
+                        )
+                        con.commit()
+                        frequencia += 1
+                        dados_html = (
+                            f"<div style='font-size:2em;'><b>{saud}, {nome_reconhecido}!</b></div>"
+                            f"<div style='font-size:1.5em;'><ul>"
+                            f"<li><b>Faixa:</b> {faixa}</li>"
+                            f"<li><b>Categoria de Idade:</b> {categoria_idade}</li>"
+                            f"<li><b>Categoria de Peso:</b> {categoria_peso}</li>"
+                            f"<li><b>Frequência:</b> {frequencia}</li>"
+                            f"</ul></div>"
+                        )
+                    else:
+                        dados_html = (
+                            f"<div style='font-size:2em; color:#e6b800;'><b>{saud}, {nome_reconhecido}! (Presença já registrada hoje)</b></div>"
+                            f"<div style='font-size:1.5em;'><ul>"
+                            f"<li><b>Faixa:</b> {faixa}</li>"
+                            f"<li><b>Categoria de Idade:</b> {categoria_idade}</li>"
+                            f"<li><b>Categoria de Peso:</b> {categoria_peso}</li>"
+                            f"<li><b>Frequência:</b> {frequencia}</li>"
+                            f"</ul></div>"
+                        )
                 else:
                     st.warning("Rosto não reconhecido.")
+        # Exibe as imagens lado a lado
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(img, caption="Foto original", width=400)
+        with col2:
+            st.image(img_box, caption="Rosto(s) detectado(s)", channels="RGB", width=400)
+        # Exibe os dados abaixo das imagens
+        if dados_html:
+            st.markdown(dados_html, unsafe_allow_html=True)
 
 elif opcao == "Reconhecimento Facial (Streaming)":
     st.title("Reconhecimento Facial (Streaming)")
@@ -137,17 +208,35 @@ elif opcao == "Reconhecimento Facial (Streaming)":
 
     if 'nome_reconhecido' not in st.session_state:
         st.session_state['nome_reconhecido'] = ''
+    if 'aluno_reconhecido' not in st.session_state:
+        st.session_state['aluno_reconhecido'] = None
 
     class FaceRecognitionProcessor(VideoTransformerBase):
         def __init__(self):
-            self.alunos = con.execute("SELECT nome, encoding FROM alunos WHERE encoding IS NOT NULL").fetchall()
+            self.alunos = con.execute("SELECT id, nome, faixa, categoria_idade, categoria_peso, frequencia, encoding FROM alunos WHERE encoding IS NOT NULL").fetchall()
+            self.ids = []
             self.nomes = []
+            self.faixas = []
+            self.categorias_idade = []
+            self.categorias_peso = []
+            self.frequencias = []
             self.encodings = []
-            for nome, enc in self.alunos:
+            for id_aluno, nome, faixa, cat_idade, cat_peso, freq, enc in self.alunos:
                 if enc is not None:
                     enc_np = np.frombuffer(enc, dtype=np.float64)
                     self.encodings.append(enc_np)
+                    self.ids.append(id_aluno)
                     self.nomes.append(nome)
+                    self.faixas.append(faixa)
+                    self.categorias_idade.append(cat_idade)
+                    self.categorias_peso.append(cat_peso)
+                    self.frequencias.append(freq)
+            self.checkin_realizado = set()
+            # Novo: contador de confirmações
+            if 'confirmacoes_reconhecimento' not in st.session_state:
+                st.session_state['confirmacoes_reconhecimento'] = {}
+            if 'ultimo_id_reconhecido' not in st.session_state:
+                st.session_state['ultimo_id_reconhecido'] = None
 
         def recv(self, frame):
             img = frame.to_ndarray(format="bgr24")
@@ -155,31 +244,100 @@ elif opcao == "Reconhecimento Facial (Streaming)":
             face_encodings = face_recognition.face_encodings(img, face_locations)
             nome_exibido = None
             reconhecido = False
+            id_reconhecido = None
             for (top, right, bottom, left), encoding in zip(face_locations, face_encodings):
                 resultados = face_recognition.compare_faces(self.encodings, encoding, tolerance=0.5)
                 if any(resultados):
                     idx = resultados.index(True)
                     nome_exibido = self.nomes[idx]
                     reconhecido = True
+                    id_reconhecido = self.ids[idx]
                     cv2.rectangle(img, (left, top), (right, bottom), (0,255,0), 2)
                     cv2.putText(img, nome_exibido, (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
+                    # Lógica de confirmação
+                    if st.session_state['ultimo_id_reconhecido'] == id_reconhecido:
+                        st.session_state['confirmacoes_reconhecimento'][id_reconhecido] = st.session_state['confirmacoes_reconhecimento'].get(id_reconhecido, 0) + 1
+                    else:
+                        st.session_state['confirmacoes_reconhecimento'] = {id_reconhecido: 1}
+                        st.session_state['ultimo_id_reconhecido'] = id_reconhecido
+                    # Só registra se reconhecido 3 vezes seguidas
+                    if st.session_state['confirmacoes_reconhecimento'][id_reconhecido] == 3:
+                        aluno_id = id_reconhecido
+                        hoje = datetime.date.today()
+                        agora = datetime.datetime.now().strftime("%H:%M:%S")
+                        query = "SELECT COUNT(*) FROM historico_presencas WHERE aluno_id = ? AND data = ?"
+                        result = con.execute(query, (aluno_id, hoje)).fetchone()
+                        if result[0] == 0 and aluno_id not in self.checkin_realizado:
+                            novo_id = con.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM historico_presencas").fetchone()[0]
+                            con.execute(
+                                "INSERT INTO historico_presencas (id, aluno_id, nome, data, hora) VALUES (?, ?, ?, ?, ?)",
+                                (novo_id, aluno_id, nome_exibido, hoje, agora)
+                            )
+                            con.execute(
+                                "UPDATE alunos SET frequencia = frequencia + 1 WHERE id = ?",
+                                (aluno_id,)
+                            )
+                            con.commit()
+                            self.checkin_realizado.add(aluno_id)
+                            st.session_state['checkin_msg'] = f"Seja bem-vindo, {nome_exibido}! Check-in realizado."
+                        elif result[0] > 0:
+                            st.session_state['checkin_msg'] = f"Presença já registrada hoje, {nome_exibido}!"
+                        else:
+                            st.session_state['checkin_msg'] = ""
+                        st.session_state['aluno_reconhecido'] = {
+                            "nome": self.nomes[idx],
+                            "faixa": self.faixas[idx],
+                            "categoria_idade": self.categorias_idade[idx],
+                            "categoria_peso": self.categorias_peso[idx],
+                            "frequencia": con.execute("SELECT frequencia FROM alunos WHERE id = ?", (aluno_id,)).fetchone()[0]
+                        }
+                        # Força atualização da interface
+                        st.rerun()
+                    elif st.session_state['confirmacoes_reconhecimento'][id_reconhecido] < 3:
+                        st.session_state['nome_reconhecido'] = f"Reconhecendo... ({st.session_state['confirmacoes_reconhecimento'][id_reconhecido]}/3)"
+                        st.session_state['aluno_reconhecido'] = None
+                        st.session_state['checkin_msg'] = ""
                 else:
                     cv2.rectangle(img, (left, top), (right, bottom), (0,0,255), 2)
                     cv2.putText(img, "Desconhecido", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,0,255), 2)
             # Atualiza o nome reconhecido no estado
-            if reconhecido and nome_exibido:
+            if reconhecido and nome_exibido and id_reconhecido and st.session_state['confirmacoes_reconhecimento'].get(id_reconhecido, 0) >= 3:
                 st.session_state['nome_reconhecido'] = f"Aluno reconhecido: {nome_exibido}"
-            elif len(face_locations) > 0:
+            elif len(face_locations) > 0 and not (reconhecido and id_reconhecido and st.session_state['confirmacoes_reconhecimento'].get(id_reconhecido, 0) >= 3):
                 st.session_state['nome_reconhecido'] = "Rosto não reconhecido."
+                st.session_state['aluno_reconhecido'] = None
+                st.session_state['checkin_msg'] = ""
+                st.session_state['ultimo_id_reconhecido'] = None
+                st.session_state['confirmacoes_reconhecimento'] = {}
             else:
                 st.session_state['nome_reconhecido'] = "Nenhum rosto detectado."
+                st.session_state['aluno_reconhecido'] = None
+                st.session_state['checkin_msg'] = ""
+                st.session_state['ultimo_id_reconhecido'] = None
+                st.session_state['confirmacoes_reconhecimento'] = {}
             return av.VideoFrame.from_ndarray(img, format="bgr24")
 
     ctx = webrtc_streamer(
         key="reconhecimento-facial-streaming",
         video_processor_factory=FaceRecognitionProcessor
     )
+    # Atualização periódica da interface enquanto o vídeo está ativo
+    if ctx.state.playing:
+        time.sleep(1)
+        st.rerun()
+    # Exibir dados do aluno reconhecido logo abaixo do vídeo
     st.markdown(f"**{st.session_state['nome_reconhecido']}**")
+    if st.session_state.get('aluno_reconhecido'):
+        aluno = st.session_state['aluno_reconhecido']
+        st.success(
+            f"Bem-vindo, {aluno['nome']}!\n"
+            f"Faixa: {aluno['faixa']}\n"
+            f"Categoria de Idade: {aluno['categoria_idade']}\n"
+            f"Categoria de Peso: {aluno['categoria_peso']}\n"
+            f"Frequência: {aluno['frequencia']}"
+        )
+    if st.session_state.get('checkin_msg'):
+        st.info(st.session_state['checkin_msg'])
 
 elif opcao == "Gerenciar Alunos":
     st.title("Gerenciar Alunos")
@@ -271,4 +429,10 @@ elif opcao == "Gerenciar Alunos":
             with col_cancela:
                 if st.button("Cancelar", key=f"cancela_remover_{aluno_id}"):
                     del st.session_state['remover']
-                    st.rerun() 
+                    st.rerun()
+
+# Função utilitária para converter imagem para base64
+def Image_to_base64(img):
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode() 
